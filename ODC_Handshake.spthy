@@ -1,0 +1,201 @@
+theory ODC_Handshake
+begin
+
+/*
+  Open Driver Communication (ODC): authenticated session between a
+  controller C and an HSM adapter D, with algorithm-mode negotiation,
+  followed by one authenticated operation request.
+
+  Handshake (SIGMA-style, signed Diffie-Hellman):
+    1. C -> D : C, D, nc, g^x, offer          offer = <'hybrid','classical'>
+    2. D -> C : nd, g^y, v, sign_D(<'ODC_D', C, D, nc, nd, g^x, g^y, offer, v>)
+    3. C -> D : sign_C(<'ODC_C', C, D, nc, nd, g^x, g^y, offer, v>)
+    k = h(<g^xy, nc, nd>)
+  Request:
+    4. C -> D : senc(<'REQ', rid, op, kh>, k)   (D rejects a repeated rid)
+
+  Threat model: Dolev-Yao network; long-term keys of controllers and
+  devices may be revealed at any time (RevLtk).
+*/
+
+builtins: diffie-hellman, signing, symmetric-encryption, hashing
+
+restriction Eq:     "All x y #i. Eq(x, y) @ #i ==> x = y"
+restriction Neq:    "All x y #i. Neq(x, y) @ #i ==> not (x = y)"
+restriction OnlyOnce:
+  "All A #i #j. Register(A) @ #i & Register(A) @ #j ==> #i = #j"
+// Device-side anti-replay: an adapter executes each request id at most once.
+restriction UniqueRequest:
+  "All D rid #i #j. SeenRid(D, rid) @ #i & SeenRid(D, rid) @ #j ==> #i = #j"
+
+/* ---------- Enrollment of trust anchors ---------- */
+
+rule Register_Controller:
+  [ Fr(~sk) ]
+  --[ Register($C), Controller($C) ]->
+  [ !CtlLtk($C, ~sk), !Pk($C, pk(~sk)), Out(pk(~sk)) ]
+
+rule Register_Device_Hybrid:
+  [ Fr(~sk) ]
+  --[ Register($D), HybridDevice($D) ]->
+  [ !DevLtk($D, ~sk), !Pk($D, pk(~sk)), !Caps($D, 'hybrid'), Out(pk(~sk)) ]
+
+rule Register_Device_Legacy:
+  [ Fr(~sk) ]
+  --[ Register($D), LegacyDevice($D) ]->
+  [ !DevLtk($D, ~sk), !Pk($D, pk(~sk)), !Caps($D, 'classical'), Out(pk(~sk)) ]
+
+rule Reveal_Ctl:
+  [ !CtlLtk(A, sk) ] --[ RevLtk(A) ]-> [ Out(sk) ]
+
+rule Reveal_Dev:
+  [ !DevLtk(A, sk) ] --[ RevLtk(A) ]-> [ Out(sk) ]
+
+/* ---------- Handshake ---------- */
+
+rule C_1:
+  let X = 'g'^~x
+      offer = <'hybrid', 'classical'>
+  in
+  [ !CtlLtk($C, skC), Fr(~nc), Fr(~x) ]
+  --[ C_Start($C, $D, ~nc) ]->
+  [ C_St1($C, $D, ~nc, ~x, offer), Out(<$C, $D, ~nc, X, offer>) ]
+
+// Hybrid-capable device: picks 'hybrid' whenever it is offered.
+rule D_1_Hybrid_Pick_Hybrid:
+  let Y = 'g'^~y
+      offer = <'hybrid', o2>
+      v = 'hybrid'
+      k = h(<X^~y, nc, ~nd>)
+      tr = <C, $D, nc, ~nd, X, Y, offer, v>
+  in
+  [ !DevLtk($D, skD), !Caps($D, 'hybrid'), !Pk(C, pkC),
+    In(<C, $D, nc, X, offer>), Fr(~nd), Fr(~y) ]
+  --[ D_Running($D, C, nc, ~nd, offer, v, k) ]->
+  [ D_St1($D, C, nc, ~nd, X, Y, offer, v, k, pkC),
+    Out(<~nd, Y, v, sign(<'ODC_D', tr>, skD)>) ]
+
+// Hybrid-capable device: falls back to 'classical' only if 'hybrid' is absent.
+rule D_1_Hybrid_Fallback:
+  let Y = 'g'^~y
+      offer = <o1, 'classical'>
+      v = 'classical'
+      k = h(<X^~y, nc, ~nd>)
+      tr = <C, $D, nc, ~nd, X, Y, offer, v>
+  in
+  [ !DevLtk($D, skD), !Caps($D, 'hybrid'), !Pk(C, pkC),
+    In(<C, $D, nc, X, offer>), Fr(~nd), Fr(~y) ]
+  --[ Neq(o1, 'hybrid'), D_Running($D, C, nc, ~nd, offer, v, k) ]->
+  [ D_St1($D, C, nc, ~nd, X, Y, offer, v, k, pkC),
+    Out(<~nd, Y, v, sign(<'ODC_D', tr>, skD)>) ]
+
+// Legacy device: supports 'classical' only.
+rule D_1_Legacy:
+  let Y = 'g'^~y
+      offer = <o1, 'classical'>
+      v = 'classical'
+      k = h(<X^~y, nc, ~nd>)
+      tr = <C, $D, nc, ~nd, X, Y, offer, v>
+  in
+  [ !DevLtk($D, skD), !Caps($D, 'classical'), !Pk(C, pkC),
+    In(<C, $D, nc, X, offer>), Fr(~nd), Fr(~y) ]
+  --[ D_Running($D, C, nc, ~nd, offer, v, k) ]->
+  [ D_St1($D, C, nc, ~nd, X, Y, offer, v, k, pkC),
+    Out(<~nd, Y, v, sign(<'ODC_D', tr>, skD)>) ]
+
+rule C_2:
+  let X = 'g'^~x
+      k = h(<Y^~x, nc, nd>)
+      tr = <C, D, nc, nd, X, Y, offer, v>
+  in
+  [ C_St1(C, D, nc, ~x, offer), !CtlLtk(C, skC), !Pk(D, pkD),
+    In(<nd, Y, v, sigD>) ]
+  --[ Eq(verify(sigD, <'ODC_D', tr>, pkD), true),
+      C_Accept(C, D, nc, nd, offer, v, k),
+      C_Running(C, D, nc, nd, offer, v, k) ]->
+  [ !C_Session(C, D, k), Out(sign(<'ODC_C', tr>, skC)) ]
+
+rule D_2:
+  let tr = <C, D, nc, nd, X, Y, offer, v>
+  in
+  [ D_St1(D, C, nc, nd, X, Y, offer, v, k, pkC), In(sigC) ]
+  --[ Eq(verify(sigC, <'ODC_C', tr>, pkC), true),
+      D_Accept(D, C, nc, nd, offer, v, k) ]->
+  [ !D_Session(D, C, k) ]
+
+/* ---------- One authenticated operation request ---------- */
+
+rule C_Request:
+  [ !C_Session(C, D, k), Fr(~rid) ]
+  --[ SendReq(C, D, ~rid, $op, $kh, k) ]->
+  [ Out(senc(<'REQ', ~rid, $op, $kh>, k)) ]
+
+rule D_Execute:
+  [ !D_Session(D, C, k), In(senc(<'REQ', rid, op, kh>, k)) ]
+  --[ SeenRid(D, rid), Exec(D, C, rid, op, kh, k) ]->
+  [ ]
+
+/* ---------- Properties ---------- */
+
+lemma executable:
+  exists-trace
+  "Ex C D rid op kh k #i #j.
+      Exec(D, C, rid, op, kh, k) @ #i & HybridDevice(D) @ #j
+      & not (Ex A #r. RevLtk(A) @ #r)"
+
+// Session-key secrecy with perfect forward secrecy:
+// only compromise BEFORE acceptance can break it.
+lemma key_secrecy_pfs:
+  "All C D nc nd offer v k #i.
+      C_Accept(C, D, nc, nd, offer, v, k) @ #i
+      & not (Ex #r. RevLtk(D) @ #r & #r < #i)
+      & not (Ex #r. RevLtk(C) @ #r & #r < #i)
+   ==> not (Ex #j. K(k) @ #j)"
+
+// Same guarantee from the device's side (used as a helper below).
+lemma device_key_secrecy [reuse]:
+  "All D C nc nd offer v k #i.
+      D_Accept(D, C, nc, nd, offer, v, k) @ #i
+      & not (Ex #r. RevLtk(D) @ #r)
+      & not (Ex #r. RevLtk(C) @ #r)
+   ==> not (Ex #j. K(k) @ #j)"
+
+// Controller authenticates the device: injective agreement on the full
+// transcript (nonces, offer, chosen mode, session key).
+lemma controller_injective_agreement:
+  "All C D nc nd offer v k #i.
+      C_Accept(C, D, nc, nd, offer, v, k) @ #i
+      & not (Ex #r. RevLtk(D) @ #r)
+   ==> (Ex #j. D_Running(D, C, nc, nd, offer, v, k) @ #j & #j < #i)
+       & not (Ex C2 D2 #i2. C_Accept(C2, D2, nc, nd, offer, v, k) @ #i2
+              & not (#i2 = #i))"
+
+// Device authenticates the controller.
+lemma device_injective_agreement:
+  "All D C nc nd offer v k #i.
+      D_Accept(D, C, nc, nd, offer, v, k) @ #i
+      & not (Ex #r. RevLtk(C) @ #r)
+      & not (Ex #r. RevLtk(D) @ #r)
+   ==> (Ex #j. C_Running(C, D, nc, nd, offer, v, k) @ #j & #j < #i)
+       & not (Ex D2 C2 #i2. D_Accept(D2, C2, nc, nd, offer, v, k) @ #i2
+              & not (#i2 = #i))"
+
+// Downgrade resistance: a controller never settles on 'classical' with a
+// hybrid-capable device unless that device's key was compromised.
+lemma no_downgrade:
+  "All C D nc nd offer v k #i #j.
+      C_Accept(C, D, nc, nd, offer, v, k) @ #i & HybridDevice(D) @ #j
+      & not (Ex #r. RevLtk(D) @ #r)
+   ==> v = 'hybrid'"
+
+// Request authenticity and no replay: every executed operation was sent
+// by the controller in that session, and is executed at most once.
+lemma request_injective_agreement:
+  "All D C rid op kh k #i.
+      Exec(D, C, rid, op, kh, k) @ #i
+      & not (Ex #r. RevLtk(C) @ #r)
+      & not (Ex #r. RevLtk(D) @ #r)
+   ==> (Ex #j. SendReq(C, D, rid, op, kh, k) @ #j & #j < #i)
+       & not (Ex #i2. Exec(D, C, rid, op, kh, k) @ #i2 & not (#i2 = #i))"
+
+end
