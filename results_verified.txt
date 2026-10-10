@@ -1,0 +1,15 @@
+summary of summaries:
+
+analyzed: ODC_Handshake.spthy
+
+  processing time: 7.09s
+
+  executable (exists-trace): verified (10 steps)
+  key_secrecy_pfs (all-traces): verified (25 steps)
+  device_key_secrecy (all-traces): verified (47 steps)
+  controller_injective_agreement (all-traces): verified (36 steps)
+  device_injective_agreement (all-traces): verified (156 steps)
+  no_downgrade (all-traces): verified (9 steps)
+  request_injective_agreement (all-traces): verified (73 steps)
+
+==============================================================================
