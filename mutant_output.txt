@@ -1,0 +1,779 @@
+maude tool: 'maude'
+ checking version: 3.5. OK.
+ checking installation: OK.
+[Theory ODC_Handshake_NoOfferBinding] Theory loaded
+[Theory ODC_Handshake_NoOfferBinding] Theory translated
+[Theory ODC_Handshake_NoOfferBinding] Derivation checks started
+[Theory ODC_Handshake_NoOfferBinding] Derivation checks ended
+[Theory ODC_Handshake_NoOfferBinding] Theory closed
+[Saturating Sources] Step 1 (Max 5)
+[Saturating Sources] Step 2 (Max 5)
+[Saturating Sources] Done
+theory ODC_Handshake_NoOfferBinding begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: fst/1, h/1, pair/2, pk/1, sdec/2, senc/2, sign/2, snd/1,
+           true/0, verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+
+
+
+
+
+
+
+
+
+
+
+
+restriction Eq:
+  "∀ x y #i. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+restriction Neq:
+  "∀ x y #i. (Neq( x, y ) @ #i) ⇒ (¬(x = y))"
+  // safety formula
+
+restriction OnlyOnce:
+  "∀ A #i #j. ((Register( A ) @ #i) ∧ (Register( A ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+restriction UniqueRequest:
+  "∀ D rid #i #j.
+    ((SeenRid( D, rid ) @ #i) ∧ (SeenRid( D, rid ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+rule (modulo E) Register_Controller:
+   [ Fr( ~sk ) ]
+  --[ Register( $C ), Controller( $C ) ]->
+   [ !CtlLtk( $C, ~sk ), !Pk( $C, pk(~sk) ), Out( pk(~sk) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Register_Device_Hybrid:
+   [ Fr( ~sk ) ]
+  --[ Register( $D ), HybridDevice( $D ) ]->
+   [
+   !DevLtk( $D, ~sk ), !Pk( $D, pk(~sk) ), !Caps( $D, 'hybrid' ),
+   Out( pk(~sk) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Register_Device_Legacy:
+   [ Fr( ~sk ) ]
+  --[ Register( $D ), LegacyDevice( $D ) ]->
+   [
+   !DevLtk( $D, ~sk ), !Pk( $D, pk(~sk) ), !Caps( $D, 'classical' ),
+   Out( pk(~sk) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_Ctl:
+   [ !CtlLtk( A, sk ) ] --[ RevLtk( A ) ]-> [ Out( sk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_Dev:
+   [ !DevLtk( A, sk ) ] --[ RevLtk( A ) ]-> [ Out( sk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1:
+   [ !CtlLtk( $C, skC ), Fr( ~nc ), Fr( ~x ) ]
+  --[ C_Start( $C, $D, ~nc ) ]->
+   [
+   C_St1( $C, $D, ~nc, ~x, <'hybrid', 'classical'> ),
+   Out( <$C, $D, ~nc, 'g'^~x, 'hybrid', 'classical'> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) D_1_Hybrid_Pick_Hybrid:
+   [
+   !DevLtk( $D, skD ), !Caps( $D, 'hybrid' ), !Pk( C, pkC ),
+   In( <C, $D, nc, X, 'hybrid', o2> ), Fr( ~nd ), Fr( ~y )
+   ]
+  --[
+  D_Running( $D, C, nc, ~nd, <'hybrid', o2>, 'hybrid', h(<X^~y, nc, ~nd>) )
+  ]->
+   [
+   D_St1( $D, C, nc, ~nd, X, 'g'^~y, <'hybrid', o2>, 'hybrid',
+          h(<X^~y, nc, ~nd>), pkC
+   ),
+   Out( <~nd, 'g'^~y, 'hybrid', 
+         sign(<'ODC_D', C, $D, nc, ~nd, X, 'g'^~y, 'hybrid'>, skD)>
+   )
+   ]
+
+  /*
+  rule (modulo AC) D_1_Hybrid_Pick_Hybrid:
+     [
+     !DevLtk( $D, skD ), !Caps( $D, 'hybrid' ), !Pk( C, pkC ),
+     In( <C, $D, nc, X, 'hybrid', o2> ), Fr( ~nd ), Fr( ~y )
+     ]
+    --[
+    D_Running( $D, C, nc, ~nd, <'hybrid', o2>, 'hybrid', h(<z, nc, ~nd>) )
+    ]->
+     [
+     D_St1( $D, C, nc, ~nd, X, 'g'^~y, <'hybrid', o2>, 'hybrid',
+            h(<z, nc, ~nd>), pkC
+     ),
+     Out( <~nd, 'g'^~y, 'hybrid', 
+           sign(<'ODC_D', C, $D, nc, ~nd, X, 'g'^~y, 'hybrid'>, skD)>
+     )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.16
+       X     = X.18
+       z     = X.18^~y.16
+    
+    2. ~y    = ~y.23
+       X     = z.32^inv(~y.23)
+       z     = z.32
+    
+    3. ~y    = ~y.81
+       X     = x.157^x.158
+       z     = x.157^(~y.81*x.158)
+    
+    4. ~y    = ~y.83
+       X     = x.161^inv((~y.83*x.162))
+       z     = x.161^inv(x.162)
+    
+    5. ~y    = ~y.83
+       X     = x.161^(x.162*inv(~y.83))
+       z     = x.161^x.162
+    
+    6. ~y    = ~y.84
+       X     = x.162^(x.163*inv((~y.84*x.164)))
+       z     = x.162^(x.163*inv(x.164))
+    
+    7. X     = DH_neutral
+       z     = DH_neutral
+  */
+
+rule (modulo E) D_1_Hybrid_Fallback:
+   [
+   !DevLtk( $D, skD ), !Caps( $D, 'hybrid' ), !Pk( C, pkC ),
+   In( <C, $D, nc, X, o1, 'classical'> ), Fr( ~nd ), Fr( ~y )
+   ]
+  --[
+  Neq( o1, 'hybrid' ),
+  D_Running( $D, C, nc, ~nd, <o1, 'classical'>, 'classical',
+             h(<X^~y, nc, ~nd>)
+  )
+  ]->
+   [
+   D_St1( $D, C, nc, ~nd, X, 'g'^~y, <o1, 'classical'>, 'classical',
+          h(<X^~y, nc, ~nd>), pkC
+   ),
+   Out( <~nd, 'g'^~y, 'classical', 
+         sign(<'ODC_D', C, $D, nc, ~nd, X, 'g'^~y, 'classical'>, skD)>
+   )
+   ]
+
+  /*
+  rule (modulo AC) D_1_Hybrid_Fallback:
+     [
+     !DevLtk( $D, skD ), !Caps( $D, 'hybrid' ), !Pk( C, pkC ),
+     In( <C, $D, nc, X, o1, 'classical'> ), Fr( ~nd ), Fr( ~y )
+     ]
+    --[
+    Neq( o1, 'hybrid' ),
+    D_Running( $D, C, nc, ~nd, <o1, 'classical'>, 'classical',
+               h(<z, nc, ~nd>)
+    )
+    ]->
+     [
+     D_St1( $D, C, nc, ~nd, X, 'g'^~y, <o1, 'classical'>, 'classical',
+            h(<z, nc, ~nd>), pkC
+     ),
+     Out( <~nd, 'g'^~y, 'classical', 
+           sign(<'ODC_D', C, $D, nc, ~nd, X, 'g'^~y, 'classical'>, skD)>
+     )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.17
+       X     = X.19
+       z     = X.19^~y.17
+    
+    2. ~y    = ~y.25
+       X     = z.35^inv(~y.25)
+       z     = z.35
+    
+    3. ~y    = ~y.100
+       X     = x.195^x.196
+       z     = x.195^(~y.100*x.196)
+    
+    4. ~y    = ~y.102
+       X     = x.199^inv((~y.102*x.200))
+       z     = x.199^inv(x.200)
+    
+    5. ~y    = ~y.102
+       X     = x.199^(x.200*inv(~y.102))
+       z     = x.199^x.200
+    
+    6. ~y    = ~y.103
+       X     = x.200^(x.201*inv((~y.103*x.202)))
+       z     = x.200^(x.201*inv(x.202))
+    
+    7. X     = DH_neutral
+       z     = DH_neutral
+  */
+
+rule (modulo E) D_1_Legacy:
+   [
+   !DevLtk( $D, skD ), !Caps( $D, 'classical' ), !Pk( C, pkC ),
+   In( <C, $D, nc, X, o1, 'classical'> ), Fr( ~nd ), Fr( ~y )
+   ]
+  --[
+  D_Running( $D, C, nc, ~nd, <o1, 'classical'>, 'classical',
+             h(<X^~y, nc, ~nd>)
+  )
+  ]->
+   [
+   D_St1( $D, C, nc, ~nd, X, 'g'^~y, <o1, 'classical'>, 'classical',
+          h(<X^~y, nc, ~nd>), pkC
+   ),
+   Out( <~nd, 'g'^~y, 'classical', 
+         sign(<'ODC_D', C, $D, nc, ~nd, X, 'g'^~y, 'classical'>, skD)>
+   )
+   ]
+
+  /*
+  rule (modulo AC) D_1_Legacy:
+     [
+     !DevLtk( $D, skD ), !Caps( $D, 'classical' ), !Pk( C, pkC ),
+     In( <C, $D, nc, X, o1, 'classical'> ), Fr( ~nd ), Fr( ~y )
+     ]
+    --[
+    D_Running( $D, C, nc, ~nd, <o1, 'classical'>, 'classical',
+               h(<z, nc, ~nd>)
+    )
+    ]->
+     [
+     D_St1( $D, C, nc, ~nd, X, 'g'^~y, <o1, 'classical'>, 'classical',
+            h(<z, nc, ~nd>), pkC
+     ),
+     Out( <~nd, 'g'^~y, 'classical', 
+           sign(<'ODC_D', C, $D, nc, ~nd, X, 'g'^~y, 'classical'>, skD)>
+     )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.16
+       X     = X.18
+       z     = X.18^~y.16
+    
+    2. ~y    = ~y.23
+       X     = z.32^inv(~y.23)
+       z     = z.32
+    
+    3. ~y    = ~y.81
+       X     = x.157^x.158
+       z     = x.157^(~y.81*x.158)
+    
+    4. ~y    = ~y.83
+       X     = x.161^inv((~y.83*x.162))
+       z     = x.161^inv(x.162)
+    
+    5. ~y    = ~y.83
+       X     = x.161^(x.162*inv(~y.83))
+       z     = x.161^x.162
+    
+    6. ~y    = ~y.84
+       X     = x.162^(x.163*inv((~y.84*x.164)))
+       z     = x.162^(x.163*inv(x.164))
+    
+    7. X     = DH_neutral
+       z     = DH_neutral
+  */
+
+rule (modulo E) C_2:
+   [
+   C_St1( C, D, nc, ~x, offer ), !CtlLtk( C, skC ), !Pk( D, pkD ),
+   In( <nd, Y, v, sigD> )
+   ]
+  --[
+  Eq( verify(sigD, <'ODC_D', C, D, nc, nd, 'g'^~x, Y, v>, pkD), true ),
+  C_Accept( C, D, nc, nd, offer, v, h(<Y^~x, nc, nd>) ),
+  C_Running( C, D, nc, nd, offer, v, h(<Y^~x, nc, nd>) )
+  ]->
+   [
+   !C_Session( C, D, h(<Y^~x, nc, nd>) ),
+   Out( sign(<'ODC_C', C, D, nc, nd, 'g'^~x, Y, v>, skC) )
+   ]
+
+  /*
+  rule (modulo AC) C_2:
+     [
+     C_St1( C, D, nc, ~x, offer ), !CtlLtk( C, skC ), !Pk( D, pkD ),
+     In( <nd, Y, v, sigD> )
+     ]
+    --[
+    Eq( z.1, true ), C_Accept( C, D, nc, nd, offer, v, h(<z, nc, nd>) ),
+    C_Running( C, D, nc, nd, offer, v, h(<z, nc, nd>) )
+    ]->
+     [
+     !C_Session( C, D, h(<z, nc, nd>) ),
+     Out( sign(<'ODC_C', C, D, nc, nd, 'g'^~x, Y, v>, skC) )
+     ]
+    variants (modulo AC)
+     1. ~x    = ~x.27
+        C     = C.28
+        D     = D.29
+        Y     = Y.30
+        nc    = nc.31
+        nd    = nd.32
+        pkD   = pkD.34
+        sigD  = sigD.35
+        v     = v.37
+        z     = Y.30^~x.27
+        z.1   = verify(sigD.35,
+                       <'ODC_D', C.28, D.29, nc.31, nd.32, 'g'^~x.27, Y.30, v.37>, pkD.34)
+    
+     2. ~x    = ~x.27
+        C     = C.28
+        D     = D.29
+        Y     = DH_neutral
+        nc    = nc.31
+        nd    = nd.32
+        pkD   = pkD.34
+        sigD  = sigD.35
+        v     = v.37
+        z     = DH_neutral
+        z.1   = verify(sigD.35,
+                       <'ODC_D', C.28, D.29, nc.31, nd.32, 'g'^~x.27, DH_neutral, v.37>, pkD.34)
+    
+     3. ~x    = ~x.28
+        C     = C.29
+        D     = D.30
+        Y     = z.39^inv(~x.28)
+        nc    = nc.32
+        nd    = nd.33
+        pkD   = pkD.35
+        sigD  = sigD.36
+        v     = v.38
+        z     = z.39
+        z.1   = verify(sigD.36,
+                       <'ODC_D', C.29, D.30, nc.32, nd.33, 'g'^~x.28, z.39^inv(~x.28), v.38>,
+                       pkD.35)
+    
+     4. ~x    = ~x.88
+        C     = C.89
+        D     = D.90
+        Y     = x.173^x.174
+        nc    = nc.92
+        nd    = nd.93
+        pkD   = pkD.95
+        sigD  = sigD.96
+        v     = v.98
+        z     = x.173^(~x.88*x.174)
+        z.1   = verify(sigD.96,
+                       <'ODC_D', C.89, D.90, nc.92, nd.93, 'g'^~x.88, x.173^x.174, v.98>,
+                       pkD.95)
+    
+     5. ~x    = ~x.91
+        C     = C.92
+        D     = D.93
+        Y     = x.179^inv((~x.91*x.180))
+        nc    = nc.95
+        nd    = nd.96
+        pkD   = pkD.98
+        sigD  = sigD.99
+        v     = v.101
+        z     = x.179^inv(x.180)
+        z.1   = verify(sigD.99,
+                       <'ODC_D', C.92, D.93, nc.95, nd.96, 'g'^~x.91, x.179^inv((~x.91*x.180)), 
+                        v.101>,
+                       pkD.98)
+    
+     6. ~x    = ~x.91
+        C     = C.92
+        D     = D.93
+        Y     = x.179^(x.180*inv(~x.91))
+        nc    = nc.95
+        nd    = nd.96
+        pkD   = pkD.98
+        sigD  = sigD.99
+        v     = v.101
+        z     = x.179^x.180
+        z.1   = verify(sigD.99,
+                       <'ODC_D', C.92, D.93, nc.95, nd.96, 'g'^~x.91, x.179^(x.180*inv(~x.91)), 
+                        v.101>,
+                       pkD.98)
+    
+     7. ~x    = ~x.92
+        C     = C.93
+        D     = D.94
+        Y     = x.180^(x.181*inv((~x.92*x.182)))
+        nc    = nc.96
+        nd    = nd.97
+        pkD   = pkD.99
+        sigD  = sigD.100
+        v     = v.102
+        z     = x.180^(x.181*inv(x.182))
+        z.1   = verify(sigD.100,
+                       <'ODC_D', C.93, D.94, nc.96, nd.97, 'g'^~x.92, 
+                        x.180^(x.181*inv((~x.92*x.182))), v.102>,
+                       pkD.99)
+    
+     8. ~x    = ~x.93
+        C     = C.94
+        D     = D.95
+        Y     = DH_neutral
+        nc    = nc.97
+        nd    = nd.98
+        pkD   = pk(x.184)
+        sigD  = sign(<'ODC_D', C.94, D.95, nc.97, nd.98, 'g'^~x.93, DH_neutral, 
+                      v.103>,
+                     x.184)
+        v     = v.103
+        z     = DH_neutral
+        z.1   = true
+    
+     9. ~x    = ~x.94
+        C     = C.95
+        D     = D.96
+        Y     = Y.97
+        nc    = nc.98
+        nd    = nd.99
+        pkD   = pk(x.186)
+        sigD  = sign(<'ODC_D', C.95, D.96, nc.98, nd.99, 'g'^~x.94, Y.97, v.104>,
+                     x.186)
+        v     = v.104
+        z     = Y.97^~x.94
+        z.1   = true
+    
+    10. ~x    = ~x.94
+        C     = C.95
+        D     = D.96
+        Y     = z.105^inv(~x.94)
+        nc    = nc.98
+        nd    = nd.99
+        pkD   = pk(x.186)
+        sigD  = sign(<'ODC_D', C.95, D.96, nc.98, nd.99, 'g'^~x.94, 
+                      z.105^inv(~x.94), v.104>,
+                     x.186)
+        v     = v.104
+        z     = z.105
+        z.1   = true
+    
+    11. ~x    = ~x.95
+        C     = C.96
+        D     = D.97
+        Y     = x.183^x.184
+        nc    = nc.99
+        nd    = nd.100
+        pkD   = pk(x.188)
+        sigD  = sign(<'ODC_D', C.96, D.97, nc.99, nd.100, 'g'^~x.95, 
+                      x.183^x.184, v.105>,
+                     x.188)
+        v     = v.105
+        z     = x.183^(~x.95*x.184)
+        z.1   = true
+    
+    12. ~x    = ~x.95
+        C     = C.96
+        D     = D.97
+        Y     = x.183^inv((~x.95*x.184))
+        nc    = nc.99
+        nd    = nd.100
+        pkD   = pk(x.188)
+        sigD  = sign(<'ODC_D', C.96, D.97, nc.99, nd.100, 'g'^~x.95, 
+                      x.183^inv((~x.95*x.184)), v.105>,
+                     x.188)
+        v     = v.105
+        z     = x.183^inv(x.184)
+        z.1   = true
+    
+    13. ~x    = ~x.95
+        C     = C.96
+        D     = D.97
+        Y     = x.183^(x.184*inv(~x.95))
+        nc    = nc.99
+        nd    = nd.100
+        pkD   = pk(x.188)
+        sigD  = sign(<'ODC_D', C.96, D.97, nc.99, nd.100, 'g'^~x.95, 
+                      x.183^(x.184*inv(~x.95)), v.105>,
+                     x.188)
+        v     = v.105
+        z     = x.183^x.184
+        z.1   = true
+    
+    14. ~x    = ~x.96
+        C     = C.97
+        D     = D.98
+        Y     = x.184^(x.185*inv((~x.96*x.186)))
+        nc    = nc.100
+        nd    = nd.101
+        pkD   = pk(x.190)
+        sigD  = sign(<'ODC_D', C.97, D.98, nc.100, nd.101, 'g'^~x.96, 
+                      x.184^(x.185*inv((~x.96*x.186))), v.106>,
+                     x.190)
+        v     = v.106
+        z     = x.184^(x.185*inv(x.186))
+        z.1   = true
+  */
+
+rule (modulo E) D_2:
+   [ D_St1( D, C, nc, nd, X, Y, offer, v, k, pkC ), In( sigC ) ]
+  --[
+  Eq( verify(sigC, <'ODC_C', C, D, nc, nd, X, Y, v>, pkC), true ),
+  D_Accept( D, C, nc, nd, offer, v, k )
+  ]->
+   [ !D_Session( D, C, k ) ]
+
+  /*
+  rule (modulo AC) D_2:
+     [ D_St1( D, C, nc, nd, X, Y, offer, v, k, pkC ), In( sigC ) ]
+    --[ Eq( z, true ), D_Accept( D, C, nc, nd, offer, v, k ) ]->
+     [ !D_Session( D, C, k ) ]
+    variants (modulo AC)
+    1. C     = C.13
+       D     = D.13
+       X     = X.13
+       Y     = Y.13
+       nc    = nc.13
+       nd    = nd.13
+       pkC   = pkC.13
+       sigC  = sigC.13
+       v     = v.13
+       z     = verify(sigC.13,
+                      <'ODC_C', C.13, D.13, nc.13, nd.13, X.13, Y.13, v.13>, pkC.13)
+    
+    2. C     = x.13
+       D     = x.14
+       X     = x.15
+       Y     = x.16
+       nc    = x.18
+       nd    = x.19
+       pkC   = pk(x.21)
+       sigC  = sign(<'ODC_C', x.13, x.14, x.18, x.19, x.15, x.16, x.22>, x.21)
+       v     = x.22
+       z     = true
+  */
+
+rule (modulo E) C_Request:
+   [ !C_Session( C, D, k ), Fr( ~rid ) ]
+  --[ SendReq( C, D, ~rid, $op, $kh, k ) ]->
+   [ Out( senc(<'REQ', ~rid, $op, $kh>, k) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) D_Execute:
+   [ !D_Session( D, C, k ), In( senc(<'REQ', rid, op, kh>, k) ) ]
+  --[ SeenRid( D, rid ), Exec( D, C, rid, op, kh, k ) ]->
+   [ ]
+
+  /* has exactly the trivial AC variant */
+
+lemma executable:
+  exists-trace
+  "∃ C D rid op kh k #i #j.
+    ((Exec( D, C, rid, op, kh, k ) @ #i) ∧ (HybridDevice( D ) @ #j)) ∧
+    (¬(∃ A #r. RevLtk( A ) @ #r))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ C D rid op kh k #i #j.
+  (Exec( D, C, rid, op, kh, k ) @ #i) ∧ (HybridDevice( D ) @ #j)
+ ∧
+  ∀ A #r. (RevLtk( A ) @ #r) ⇒ ⊥"
+*/
+by sorry
+
+lemma key_secrecy_pfs:
+  all-traces
+  "∀ C D nc nd offer v k #i.
+    (((C_Accept( C, D, nc, nd, offer, v, k ) @ #i) ∧
+      (¬(∃ #r. (RevLtk( D ) @ #r) ∧ (#r < #i)))) ∧
+     (¬(∃ #r. (RevLtk( C ) @ #r) ∧ (#r < #i)))) ⇒
+    (¬(∃ #j. K( k ) @ #j))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ C D nc nd offer v k #i.
+  (C_Accept( C, D, nc, nd, offer, v, k ) @ #i)
+ ∧
+  (∀ #r. (RevLtk( D ) @ #r) ⇒ ¬(#r < #i)) ∧
+  (∀ #r. (RevLtk( C ) @ #r) ⇒ ¬(#r < #i)) ∧
+  (∃ #j. (K( k ) @ #j))"
+*/
+by sorry
+
+lemma device_key_secrecy [reuse]:
+  all-traces
+  "∀ D C nc nd offer v k #i.
+    (((D_Accept( D, C, nc, nd, offer, v, k ) @ #i) ∧
+      (¬(∃ #r. RevLtk( D ) @ #r))) ∧
+     (¬(∃ #r. RevLtk( C ) @ #r))) ⇒
+    (¬(∃ #j. K( k ) @ #j))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ D C nc nd offer v k #i.
+  (D_Accept( D, C, nc, nd, offer, v, k ) @ #i)
+ ∧
+  (∀ #r. (RevLtk( D ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (RevLtk( C ) @ #r) ⇒ ⊥) ∧
+  (∃ #j. (K( k ) @ #j))"
+*/
+by sorry
+
+lemma controller_injective_agreement:
+  all-traces
+  "∀ C D nc nd offer v k #i.
+    ((C_Accept( C, D, nc, nd, offer, v, k ) @ #i) ∧
+     (¬(∃ #r. RevLtk( D ) @ #r))) ⇒
+    ((∃ #j. (D_Running( D, C, nc, nd, offer, v, k ) @ #j) ∧ (#j < #i)) ∧
+     (¬(∃ C2 D2 #i2.
+         (C_Accept( C2, D2, nc, nd, offer, v, k ) @ #i2) ∧ (¬(#i2 = #i)))))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ C D nc nd offer v k #i.
+  (C_Accept( C, D, nc, nd, offer, v, k ) @ #i)
+ ∧
+  (∀ #r. (RevLtk( D ) @ #r) ⇒ ⊥) ∧
+  (((∀ #j. (D_Running( D, C, nc, nd, offer, v, k ) @ #j) ⇒ ¬(#j < #i)) ∨
+    (∃ C2 D2 #i2.
+      (C_Accept( C2, D2, nc, nd, offer, v, k ) @ #i2) ∧ ¬(#i2 = #i))))"
+*/
+by sorry
+
+lemma device_injective_agreement:
+  all-traces
+  "∀ D C nc nd offer v k #i.
+    (((D_Accept( D, C, nc, nd, offer, v, k ) @ #i) ∧
+      (¬(∃ #r. RevLtk( C ) @ #r))) ∧
+     (¬(∃ #r. RevLtk( D ) @ #r))) ⇒
+    ((∃ #j. (C_Running( C, D, nc, nd, offer, v, k ) @ #j) ∧ (#j < #i)) ∧
+     (¬(∃ D2 C2 #i2.
+         (D_Accept( D2, C2, nc, nd, offer, v, k ) @ #i2) ∧ (¬(#i2 = #i)))))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ D C nc nd offer v k #i.
+  (D_Accept( D, C, nc, nd, offer, v, k ) @ #i)
+ ∧
+  (∀ #r. (RevLtk( C ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (RevLtk( D ) @ #r) ⇒ ⊥) ∧
+  (((∀ #j. (C_Running( C, D, nc, nd, offer, v, k ) @ #j) ⇒ ¬(#j < #i)) ∨
+    (∃ D2 C2 #i2.
+      (D_Accept( D2, C2, nc, nd, offer, v, k ) @ #i2) ∧ ¬(#i2 = #i))))"
+*/
+by sorry
+
+lemma no_downgrade:
+  all-traces
+  "∀ C D nc nd offer v k #i #j.
+    (((C_Accept( C, D, nc, nd, offer, v, k ) @ #i) ∧
+      (HybridDevice( D ) @ #j)) ∧
+     (¬(∃ #r. RevLtk( D ) @ #r))) ⇒
+    (v = 'hybrid')"
+/*
+guarded formula characterizing all counter-examples:
+"∃ C D nc nd offer v k #i #j.
+  (C_Accept( C, D, nc, nd, offer, v, k ) @ #i) ∧ (HybridDevice( D ) @ #j)
+ ∧
+  (∀ #r. (RevLtk( D ) @ #r) ⇒ ⊥) ∧ (¬(v = 'hybrid'))"
+*/
+simplify
+solve( C_St1( C, $D, nc, ~x, offer ) ▶₀ #i )
+  case C_1
+  solve( !CtlLtk( $C, skC ) ▶₁ #i )
+    case Register_Controller
+    solve( !Pk( $D, pk(x.1) ) ▶₂ #i )
+      case Register_Device_Hybrid
+      solve( !KU( sign(<'ODC_D', $C, $D, ~nc, nd, 'g'^~x, Y, v>, ~sk.1)
+             ) @ #vk.6 )
+        case D_1_Hybrid_Fallback
+        solve( !KU( ~nc ) @ #vk.13 )
+          case C_1
+          solve( !KU( ~nd ) @ #vk.4 )
+            case D_1_Hybrid_Fallback
+            solve( !KU( 'g'^~x ) @ #vk.15 )
+              case C_1
+              solve( !KU( 'g'^~y ) @ #vk.9 )
+                case D_1_Hybrid_Fallback
+                SOLVED // trace found
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma request_injective_agreement:
+  all-traces
+  "∀ D C rid op kh k #i.
+    (((Exec( D, C, rid, op, kh, k ) @ #i) ∧ (¬(∃ #r. RevLtk( C ) @ #r))) ∧
+     (¬(∃ #r. RevLtk( D ) @ #r))) ⇒
+    ((∃ #j. (SendReq( C, D, rid, op, kh, k ) @ #j) ∧ (#j < #i)) ∧
+     (¬(∃ #i2. (Exec( D, C, rid, op, kh, k ) @ #i2) ∧ (¬(#i2 = #i)))))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ D C rid op kh k #i.
+  (Exec( D, C, rid, op, kh, k ) @ #i)
+ ∧
+  (∀ #r. (RevLtk( C ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (RevLtk( D ) @ #r) ⇒ ⊥) ∧
+  (((∀ #j. (SendReq( C, D, rid, op, kh, k ) @ #j) ⇒ ¬(#j < #i)) ∨
+    (∃ #i2. (Exec( D, C, rid, op, kh, k ) @ #i2) ∧ ¬(#i2 = #i))))"
+*/
+by sorry
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* All wellformedness checks were successful. */
+
+/*
+Generated from:
+Tamarin version 1.10.0
+Maude version 3.5
+Git revision: cb62c305f8c8b8c1e664152aa33c95b7b8d5ef32, branch: master
+Compiled at: 2024-10-30 11:11:02.432289291 UTC
+*/
+
+end
+
+==============================================================================
+summary of summaries:
+
+analyzed: ODC_Handshake_NoOfferBinding.spthy
+
+  processing time: 3.68s
+  
+  executable (exists-trace): analysis incomplete (1 steps)
+  key_secrecy_pfs (all-traces): analysis incomplete (1 steps)
+  device_key_secrecy (all-traces): analysis incomplete (1 steps)
+  controller_injective_agreement (all-traces): analysis incomplete (1 steps)
+  device_injective_agreement (all-traces): analysis incomplete (1 steps)
+  no_downgrade (all-traces): falsified - found trace (10 steps)
+  request_injective_agreement (all-traces): analysis incomplete (1 steps)
+
+==============================================================================
