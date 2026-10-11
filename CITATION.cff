@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this model, please cite it as below."
 title: "ODC handshake: a Tamarin model of an authenticated controller-HSM session with algorithm-mode negotiation"
 type: software
-version: "1.0"
+version: "1.1"
 date-released: "2026-10-10"
 license: MIT
 authors:
