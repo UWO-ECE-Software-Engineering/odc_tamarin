@@ -9,7 +9,7 @@ authors:
   - family-names: Ouda
     given-names: Abdelkader
     affiliation: "Western University, Department of Electrical and Computer Engineering"
-    orcid: "https://orcid.org/0000-0000-0000-0000"   
+    orcid: "https://orcid.org/0000-0003-3882-1763"   
     repository-code: "https://github.com/UWO-ECE-Software-Engineering/odc_tamarin.git"   
 keywords:
   - Tamarin prover
